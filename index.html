@@ -1,0 +1,337 @@
+<!doctype html><html lang='en-GB'><head><meta charset='utf-8'><script>
+
+
+
+/*
+SOURCE CODE MAP
+---------------
+0.HTML OVERHEAD
+1.CONTENTS (this soure code map)
+2.Debug variables
+3.Utility functions
+4.Resources array and class definition
+5.NpuShips array and class definition
+6.UserShips array and class definiton
+7.Repaint
+8.Run
+9.Initialise
+	9.1 Event listeners initialisation
+	9.2 Game variable initialisation
+	9.3 Element Style Initialise
+	9.4 main init method
+10.HTML UNDERFOOT
+*/
+
+
+
+//debug variables
+var tick=0,dbgstr,dbg,msstr;
+//magnification and the universe co-ordinates at the centre of a screen having a MAXX and MAXY resolution
+var MAXX,MAXY,mag,ctx,cty;
+//marquee selection variables
+var marqon=false,marqx1,marqy1,marqx2,marqy2,marquee;
+var shipsSelected,nextUid=0;
+
+
+
+//give me universe co-ordinates based on screen co-ordinated considering ctx,cty,mag, MAXX and MAXY
+function scr2uni(sx,sy){return [ctx+(sx-(MAXX>>1))/mag,cty+(sy-(MAXY>>1))/mag];}
+//give me screen co-ordinates based on universe co-ordinated considering ctx,cty,mag, MAXX and MAXY
+function uni2scr(ux,uy){return [(MAXX>>1)+((ux-ctx)*mag),(MAXY>>1)+((uy-cty)*mag)];}
+
+
+
+var resources=[];
+function Resource(posx,posy,typeNo){
+	this.uid=nextUid; nextUid++; this.selected=false;
+	this.posx=posx; this.posy=posy;
+	this.element=document.createElement('img');
+	this.type='rsrc'; this.typeNo=typeNo; this.size=64; this.element.src='gfx/rsrc'+typeNo+'.gif';
+	this.element.style.position='fixed'; this.element.style.borderWidth='1px';	this.element.style.borderColor='green';
+	this.element.style.transform='rotate('+(Math.random()*Math.PI*2)+'rad)';
+	this.paint=function(){
+		if (this.selected) this.element.style.borderStyle="solid";
+		else this.element.style.borderStyle="none";
+		sc=uni2scr(this.posx-(this.size>>1),this.posy-(this.size>>1));
+		this.element.style.left=sc[0]+'px';
+		this.element.style.top=sc[1]+'px';
+		this.element.style.width=(this.size*mag)+'px';
+		document.body.appendChild(this.element);
+	}
+}
+
+var npuShips=[];
+function NpuShip(posx,posy){
+	this.uid=nextUid; nextUid++; this.selected=false;
+	this.posx=posx; this.posy=posy;
+	this.element=document.createElement('img');
+	this.element.style.position='fixed'; this.element.style.borderWidth='1px';	this.element.style.borderColor='red';
+	this.type='npus'; this.size=512; this.element.src='gfx/battleship.gif';
+	this.paint=function(){
+		sc=uni2scr(this.posx-(this.size>>1),this.posy-(this.size>>1));
+		this.element.style.left=sc[0]+'px';
+		this.element.style.top=sc[1]+'px';
+		this.element.style.width=(this.size*mag)+'px';
+		if (this.selected) this.element.style.borderStyle='solid';
+		else	this.element.style.borderStyle='none';
+		document.body.appendChild(this.element);
+	}
+}
+
+
+var userShips=[];
+function UserShip(posx,posy,ang=0){
+	this.uid=nextUid; nextUid++;
+	this.selected=false;
+	this.element=document.createElement('img');
+	this.element.style.position='fixed';this.element.style.borderWidth='1px';this.element.style.borderColor='blue';
+	this.posx=posx; this.posy=posy; this.ang=ang;
+	this.dposx=posx; this.dposy=posy; this.dang=ang;
+	this.tgtUid;
+
+	this.element.src='gfx/Zenith.gif';
+	this.size=512;		//size of ship
+	this.omega=0.05;	//angular velocity
+	this.delta=10;		//linear velocity
+	this.range=200;	//activity range
+
+	this.weaponCanvas=document.createElement('canvas');
+	this.weaponCanvas.style.position='fixed';
+	
+	this.weaponFiring=false;
+	
+	this.paint=function(){
+		sc=uni2scr(this.posx-(this.size>>1),this.posy-(this.size>>1));
+		this.element.style.left=sc[0]+'px';
+		this.element.style.top=sc[1]+'px';
+		this.element.style.width=(this.size*mag)+'px';
+		if (this.selected) this.element.style.borderStyle='solid';
+		else	this.element.style.borderStyle='none';
+		this.element.style.transform='rotate('+this.ang+'rad)';
+		if (this.weaponFiring){
+			this.weaponCanvas.width=MAXX; 
+			this.weaponCanvas.height=MAXY;
+			document.body.appendChild(this.weaponCanvas);
+		}
+		document.body.appendChild(this.element);
+	}
+	this.run=function(){
+		if (this.tgtUid!=undefined){
+			var tgt;
+			for (var i=0;i<resources.length;i++) if (resources[i].uid==this.tgtUid){tgt=resources[i]; break;}
+			if (tgt==undefined) for (var i=0;i<npuShips.length;i++)	if (npuShips[i].uid==this.tgtUid){tgt=npuShips[i]; break;}
+			if (tgt!=undefined){
+				this.dposx=tgt.posx; this.dposy=tgt.posy;
+				this.dang=Math.atan((this.dposy-this.posy)/(this.dposx-this.posx)); if (this.dposx<this.posx) this.dang+=Math.PI;
+
+				if (this.ang!=this.dang){
+				//turn ship
+					d=this.dang-this.ang;
+					if (d>Math.PI) d-=2*Math.PI;
+					if (d<-Math.PI) d+=2*Math.PI;
+					if (Math.abs(d)<this.omega){ this.ang=this.dang; d=0;}
+					if (d>0)	this.ang+=this.omega;
+					else if (d<0) this.ang-=this.omega;
+				}
+				else if (  (this.range+(this.size>>1)+(tgt.size>>1))  <  Math.sqrt((this.posx-this.dposx)*(this.posx-this.dposx)+(this.posy-this.dposy)*(this.posy-this.dposy))){
+				//move ship
+					this.posx+=this.delta*Math.cos(this.ang);
+					this.posy+=this.delta*Math.sin(this.ang);
+				}
+				else{
+				//fire weapons
+					this.weaponFiring=true;
+					var o=uni2scr(this.posx,this.posy);
+					var t=uni2scr(this.dposx+Math.random()*10,this.dposy+Math.random()*10);
+					if (((o[0]>=0)&&(o[0]<MAXX)&&(o[1]>=0)&&(o[1]<MAXY))||((t[0]>=0)&&(t[0]<MAXX)&&(t[1]>=0)&&(t[1]<MAXY))){
+						var ctx=this.weaponCanvas.getContext('2d');
+						ctx.strokeStyle=ctx.createLinearGradient(o[0],o[1],t[0],t[1]);
+						ctx.strokeStyle.addColorStop('0','white');ctx.strokeStyle.addColorStop('0.66','green');ctx.strokeStyle.addColorStop(1-Math.random()/4,'red');ctx.strokeStyle.addColorStop('1','yellow');
+						ctx.lineWidth=mag<<3;ctx.beginPath();ctx.moveTo(o[0],o[1]);ctx.lineTo(t[0],t[1]);
+						ctx.stroke();
+					}
+				}
+			}
+		}
+	}
+}
+
+
+
+function repaint(){
+	document.body.innerHTML='';
+	document.body.style.backgroundSize=(1024*7*mag)+'px '+(1024*7*mag)+'px';
+	MAXX=window.innerWidth;
+	MAXY=window.innerHeight;
+	for (i=0;i<resources.length;i++){resources[i].paint();}
+	for (i=0;i<userShips.length;i++){userShips[i].paint();}
+	for (i=0;i<npuShips.length;i++){npuShips[i].paint();}
+	if (marqon){
+		if (marqx1>marqx2){marq_x1=marqx2;marq_x2=marqx1} else {marq_x1=marqx1;marq_x2=marqx2;}
+		if (marqy1>marqy2){marq_y1=marqy2;marq_y2=marqy1} else {marq_y1=marqy1;marq_y2=marqy2;}
+		marquee.style.left=marq_x1+'px';
+		marquee.style.top=marq_y1+'px';
+		marquee.style.width=(marq_x2-marq_x1)+'px';
+		marquee.style.height=(marq_y2-marq_y1)+'px';
+		document.body.appendChild(marquee);
+	}
+
+	document.body.appendChild(dbg);
+	dbg.innerHTML=dbgstr;
+}
+
+
+
+function run(){
+	tick++;
+	dbgstr+=msstr+'['+MAXX+','+MAXY+']:'+tick+' ('+ctx+','+cty+'),'+mag+' ';
+	repaint();
+	for (i=0;i<userShips.length;i++){
+		userShips[i].run();
+	}
+	dbgstr='';
+	setTimeout(run,25);
+}
+
+
+
+function init_addEventListeners(){
+	document.addEventListener('wheel',function(e){
+		if ((e.deltaY>0)&&(mag<=0.03125)) return;
+		if ((e.deltaY<0)&&(mag>=4)) return;
+		ctx+=((e.clientX-(MAXX>>1))/mag);
+		cty+=((e.clientY-(MAXY>>1))/mag);
+		e.deltaY>0?mag/=2:mag*=2;
+		ctx+=((-e.clientX+(MAXX>>1))/mag);
+		cty+=((-e.clientY+(MAXY>>1))/mag);
+	});
+	document.addEventListener('mousemove', function(e){
+		var uc=scr2uni(e.clientX,e.clientY);
+		msstr='ms:('+uc[0]+','+uc[1]+')';
+		if (shipsSelected){
+			var firstSelection=false;
+			for (var i=0;i<resources.length;i++){
+				if ((!firstSelection)&&(Math.abs(uc[0]-resources[i].posx)<(resources[i].size>>1))&&(Math.abs(uc[1]-resources[i].posy)<(resources[i].size>>1)))
+					{resources[i].selected=true; firstSelection=true;}
+				else
+					{resources[i].selected=false;}
+			}
+			for (var i=0;i<npuShips.length;i++){
+				if ((!firstSelection)&&(Math.abs(uc[0]-npuShips[i].posx)<(npuShips[i].size>>1))&&(Math.abs(uc[1]-npuShips[i].posy)<(npuShips[i].size>>1)))
+					{npuShips[i].selected=true; firstSelection=true;}
+				else
+					{npuShips[i].selected=false;}
+			}
+		}
+		if ((marqon)&&(e.buttons==2)){marqx2=e.clientX;marqy2=e.clientY;}
+	});
+	document.addEventListener('mousedown', function(e){
+		if (e.button==2){
+			if (!marqon){
+				marqx1=e.clientX;marqy1=e.clientY;
+				marqx2=marqx1;marqy2=marqy1;
+				marqon=true;
+			}
+			else{
+				marqx2=e.clientX;marqy2=e.clientY;
+			}
+		}
+	});
+	document.addEventListener('mouseup',function(e){
+		if ((marqon)&&(e.button==2)){
+			marqon=false;
+			if (marqx1>marqx2){marq_x1=marqx2;marq_x2=marqx1} else {marq_x1=marqx1;marq_x2=marqx2;}
+			if (marqy1>marqy2){marq_y1=marqy2;marq_y2=marqy1} else {marq_y1=marqy1;marq_y2=marqy2;}
+			var m1=scr2uni(marq_x1,marq_y1);
+			var m2=scr2uni(marq_x2,marq_y2);
+			shipsSelected=false;
+			for (var i=0;i<userShips.length;i++){
+				if ((userShips[i].posx>m1[0])&&(userShips[i].posx<m2[0])&&(userShips[i].posy>m1[1])&&(userShips[i].posy<m2[1]))
+					{userShips[i].selected=true; shipsSelected=true;}
+				else userShips[i].selected=false;
+			}
+		}
+	});
+	document.addEventListener('click',function(e){
+		if (e.button==0){
+			var firstSelection=false;
+			if (shipsSelected){
+				for (var i=0;i<resources.length;i++){
+					if (resources[i].selected==true){
+						firstSelection=true;
+						for (var j=0;j<userShips.length;j++){
+							if (userShips[j].selected){
+								userShips[j].tgtUid=resources[i].uid;
+								userShips[j].weaponFiring=false;
+							}
+						}
+						break;
+					}
+				}
+				if (!firstSelection)
+				for (var i=0;i<npuShips.length;i++){
+					if (npuShips[i].selected==true){
+						for (var j=0;j<userShips.length;j++){
+							if (userShips[j].selected){
+								userShips[j].tgtUid=npuShips[i].uid;
+								userShips[j].weaponFiring=false;
+							}
+						}
+						break;
+					}
+				}
+			}
+		}
+	});
+	document.addEventListener('contextmenu', function(e){
+		e.preventDefault();
+	});
+}
+
+
+
+function init_addResourcePocket(x,y,amount){
+	for (var i=0;i<amount;i++){
+		var pa=Math.random()*6.24;
+		var pd=Math.random()*512;
+		var rx=x+Math.cos(pa)*pd;
+		var ry=y+Math.sin(pa)*pd;
+		resources.push(new Resource(rx,ry,i&3));
+	}
+}
+function init_addResources(pockets,amounts){
+	resources=[];
+	for (var i=0;i<pockets;i++){
+		var pa=Math.random()*6.24;
+		var pd=Math.random()*4096+2048;
+		var rx=Math.cos(pa)*pd;
+		var ry=Math.sin(pa)*pd;
+		init_addResourcePocket(rx,ry,amounts);
+	}
+}
+function init_setStyles(){
+	document.body.style.background='url(gfx/stars.jpg)';document.body.style.color='white';document.body.style.margin='0px 0px';
+//	document.body.style.background='black';
+	dbg.style.background='black';dbg.style.color='white';dbg.style.position='fixed';dbg.style.bottom='0px';
+	marquee.style.background='none';marquee.style.position='fixed';marquee.style.borderWidth='1px';marquee.style.borderStyle='solid';marquee.style.borderColor='blue';
+}
+function init(){
+	ctx=0; cty=0; mag=0.0625; 
+	dbg=document.createElement('div');
+	marquee=document.createElement('div');
+	init_setStyles();
+	init_addEventListeners();
+	init_addResources(7,7);
+	userShips.push(new UserShip(0,0));
+	userShips.push(new UserShip(800,0));
+	userShips.push(new UserShip(800,800));
+	userShips.push(new UserShip(0,800));
+	npuShips.push(new NpuShip(2000,2000));
+	run();
+}
+
+
+
+</script></head>
+<body onselectstart='return false;' onload='init();'></body>
+</html>
